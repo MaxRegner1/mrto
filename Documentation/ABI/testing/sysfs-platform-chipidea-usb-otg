@@ -1,0 +1,7 @@
+What:		/sys/bus/platform/devices/ci_hdrc.0/inputs/a_bus_req
+Date:		Feb 2014
+Contact:	Li Jun <b47624@freescale.com>
+Description:
+		Can be set and read.
+		Set a_bus_req(A-device bus request) input to be 1 if
+		the applica<b47sgirr

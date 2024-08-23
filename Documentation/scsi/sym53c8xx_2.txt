@@ -1,0 +1,974 @@
+The Linux SYM-2 driver documentation file
+
+Written by Gerard Roudier <groudier@free.fr>
+21 Rue Carnot
+95170 DEUIL LA BARRE - FRANCE
+
+Updated by Matthew Wilcox <matthew@wil.cx>
+
+2004-10-09
+===============================================================================
+
+1.  Introduction
+2.  Supported chips and SCSI features
+3.  Advantages of this driver for newer chips.
+      3.1 Optimized SCSI SCRIPTS
+      3.2 New features appeared with the SYM53C896
+4.  Memory mapped I/O versus normal I/O
+5.  Tagged command queueing
+6.  Parity checking
+7.  Profiling information
+8.  Control commands
+      8.1  Set minimum synchronous period
+      8.2  Set wide size
+      8.3  Set maximum number of concurrent tagged commands
+      8.4  Set debug mode
+      8.5  Set flag (no_disc)
+      8.6  Set verbose level
+      8.7  Reset all logical units of a target
+      8.8  Abort all tasks of all logical units of a target
+9.  Configuration parameters
+10. Boot setup commands
+      10.1 Syntax
+      10.2 Available arguments
+             10.2.1  Default number of tagged commands
+             10.2.2  Burst max
+             10.2.3  LED support
+             10.2.4  Differential mode
+             10.2.5  IRQ mode
+             10.2.6  Check SCSI BUS 
+             10.2.7  Suggest a default SCSI id for hosts
+             10.2.8  Verbosity level
+             10.2.9  Debug mode
+             10.2.10 Settle delay
+             10.2.11 Serial NVRAM
+             10.2.12 Exclude a host from being attached
+      10.3 Converting from old options
+      10.4 SCSI BUS checking boot option
+11. SCSI problem troubleshooting
+      15.1 Problem tracking
+      15.2 Understanding hardware error reports
+12. Serial NVRAM support (by Richard Waltham)
+      17.1 Features
+      17.2 Symbios NVRAM layout
+      17.3 Tekram  NVRAM layout
+
+===============================================================================
+
+1. Introduction
+
+This driver supports the whole SYM53C8XX family of PCI-SCSI controllers.
+It also support the subset of LSI53C10XX PCI-SCSI controllers that are based 
+on the SYM53C8XX SCRIPTS language.
+
+It replaces the sym53c8xx+ncr53c8xx driver bundle and shares its core code 
+with the FreeBSD SYM-2 driver. The `glue' that allows this driver to work 
+under Linux is contained in 2 files named sym_glue.h and sym_glue.c.
+Other drivers files are intended not to depend on the Operating System 
+on which the driver is used.
+
+The history of this driver can be summarized as follows:
+
+1993: ncr driver written for 386bsd and FreeBSD by:
+          Wolfgang Stanglmeier        <wolf@cologne.de>
+          Stefan Esser                <se@mi.Uni-Koeln.de>
+
+1996: port of the ncr driver to Linux-1.2.13 and rename it ncr53c8xx.
+          Gerard Roudier
+
+1998: new sym53c8xx driver for Linux based on LOAD/STORE instruction and that 
+      adds full support for the 896 but drops support for early NCR devices.
+          Gerard Roudier
+
+1999: port of the sym53c8xx driver to FreeBSD and support for the LSI53C1010 
+      33 MHz and 66MHz Ultra-3 controllers. The new driver is named `sym'.
+          Gerard Roudier
+
+2000: Add support for early NCR devices to FreeBSD `sym' driver.
+      Break the driver into several sources and separate the OS glue 
+      code from the core code that can be shared among different O/Ses.
+      Write a glue code for Linux.
+          Gerard Roudier
+
+2004: Remove FreeBSD compatibility code.  Remove support for versions of
+      Linux before 2.6.  Start using Linux facilities.
+
+This README file addresses the Linux version of the driver. Under FreeBSD, 
+the driver documentation is the sym.8 man page.
+
+Information about new chips is available at LSILOGIC web server:
+
+          http://www.lsilogic.com/
+
+SCSI standard documentations are available at T10 site:
+
+          http://www.t10.org/
+
+Useful SCSI tools written by Eric Youngdale are part of most Linux 
+distributions:
+   scsiinfo:    command line tool
+   scsi-config: TCL/Tk tool using scsiinfo
+
+2. Supported chips and SCSI features
+
+The following features are supported for all chips:
+
+	Synchronous negotiation
+	Disconnection
+	Tagged command queuing
+	SCSI parity checking
+	PCI Master parity checking
+
+Other features depends on chip capabilities.
+The driver notably uses optimized SCRIPTS for devices that support 
+LOAD/STORE and handles PHASE MISMATCH from SCRIPTS for devices that 
+support the corresponding feature.
+
+The following table shows some characteristics of the chip family.
+
+       On board                                   LOAD/STORE   HARDWARE
+Chip   SDMS BIOS   Wide   SCSI std.   Max. sync   SCRIPTS      PHASE MISMATCH
+----   ---------   ----   ---------   ----------  ----------   --------------
+810        N         N      FAST10    10 MB/s        N             N
+810A       N         N      FAST10    10 MB/s        Y             N
+815        Y         N      FAST10    10 MB/s        N             N
+825        Y         Y      FAST10    20 MB/s        N             N
+825A       Y         Y      FAST10    20 MB/s        Y             N
+860        N         N      FAST20    20 MB/s        Y             N
+875        Y         Y      FAST20    40 MB/s        Y             N
+875A       Y         Y      FAST20    40 MB/s        Y             Y
+876        Y         Y      FAST20    40 MB/s        Y             N
+895        Y         Y      FAST40    80 MB/s        Y             N
+895A       Y         Y      FAST40    80 MB/s        Y             Y
+896        Y         Y      FAST40    80 MB/s        Y             Y
+897        Y         Y      FAST40    80 MB/s        Y             Y
+1510D      Y         Y      FAST40    80 MB/s        Y             Y
+1010       Y         Y      FAST80   160 MB/s        Y             Y
+1010_66*   Y         Y      FAST80   160 MB/s        Y             Y
+
+* Chip supports 33MHz and 66MHz PCI bus clock.
+
+
+Summary of other supported features:
+
+Module:                allow to load the driver
+Memory mapped I/O:     increases performance
+Control commands:      write operations to the proc SCSI file system
+Debugging information: written to syslog (expert only)
+Scatter / gather
+Shared interrupt
+Boot setup commands
+Serial NVRAM:          Symbios and Tekram formats
+
+
+3. Advantages of this driver for newer chips.
+
+3.1 Optimized SCSI SCRIPTS.
+
+All chips except the 810, 815 and 825, support new SCSI SCRIPTS instructions 
+named LOAD and STORE that allow to move up to 1 DWORD from/to an IO register 
+to/from memory much faster that the MOVE MEMORY instruction that is supported 
+by the 53c7xx and 53c8xx family.
+
+The LOAD/STORE instructions support absolute and DSA relative addressing 
+modes. The SCSI SCRIPTS had been entirely rewritten using LOAD/STORE instead 
+of MOVE MEMORY instructions.
+
+Due to the lack of LOAD/STORE SCRIPTS instructions by earlier chips, this 
+driver also incorporates a different SCRIPTS set based on MEMORY MOVE, in 
+order to provide support for the entire SYM53C8XX chips family.
+
+3.2 New features appeared with the SYM53C896
+
+Newer chips (see above) allows handling of the phase mismatch context from 
+SCRIPTS (avoids the phase mismatch interrupt that stops the SCSI processor 
+until the C code has saved the context of the transfer).
+
+The 896 and 1010 chips support 64 bit PCI transactions and addressing, 
+while the 895A supports 32 bit PCI transactions and 64 bit addressing.
+The SCRIPTS processor of these chips is not true 64 bit, but uses segment 
+registers for bit 32-63. Another interesting feature is that LOAD/STORE 
+instructions that address the on-chip RAM (8k) remain internal to the chip.
+
+4. Memory mapped I/O versus normal I/O
+
+Memory mapped I/O has less latency than normal I/O and is the recommended 
+way for doing IO with PCI devices. Memory mapped I/O seems to work fine on 
+most hardware configurations, but some poorly designed chipsets may break 
+this feature. A configuration option is provided for normal I/O to be 
+used but the driver defaults to MMIO.
+
+5. Tagged command queueing
+
+Queuing more than 1 command at a time to a device allows it to perform 
+optimizations based on actual head positions and its mechanical 
+characteristics. This feature may also reduce average command latency.
+In order to really gain advantage of this feature, devices must have 
+a reasonable cache size (No miracle is to be expected for a low-end 
+hard disk with 128 KB or less).
+Some known old SCSI devices do not properly support tagged command queuing.
+Generally, firmware revisions that fix this kind of problems are available 
+at respective vendor web/ftp sites.
+All I can say is that I never have had problem with tagged queuing using 
+this driver and its predecessors. Hard disks that behaved correctly for 
+me using tagged commands are the following:
+
+- IBM S12 0662
+- Conner 1080S
+- Quantum Atlas I
+- Quantum Atlas II
+- Seagate Cheetah I
+- Quantum Viking II
+- IBM DRVS
+- Quantum Atlas IV
+- Seagate Cheetah II
+
+If your controller has NVRAM, you can configure this feature per target 
+from the user setup tool. The Tekram Setup program allows to tune the 
+maximum number of queued commands up to 32. The Symbios Setup only allows 
+to enable or disable this feature.
+
+The maximum number of simultaneous tagged commands queued to a device
+is currently set to 16 by default.  This value is suitable for most SCSI
+disks.  With large SCSI disks (>= 2GB, cache >= 512KB, average seek time
+<= 10 ms), using a larger value may give better performances.
+
+This driver supports up to 255 commands per device, and but using more than 
+64 is generally not worth-while, unless you are using a very large disk or 
+disk arrays. It is noticeable that most of recent hard disks seem not to 
+accept more than 64 simultaneous commands. So, using more than 64 queued 
+commands is probably just resource wasting.
+
+If your controller does not have NVRAM or if it is managed by the SDMS 
+BIOS/SETUP, you can configure tagged queueing feature and device queue 
+depths from the boot command-line. For example:
+
+  sym53c8xx=tags:4/t2t3q15-t4q7/t1u0q32
+
+will set tagged commands queue depths as follow:
+
+- target 2  all luns  on controller 0 --> 15
+- target 3  all luns  on controller 0 --> 15
+- target 4  all luns  on controller 0 -->  7
+- target 1  lun 0     on controller 1 --> 32
+- all other target/lun                -->  4
+
+In some special conditions, some SCSI disk firmwares may return a
+QUEUE FULL status for a SCSI command. This behaviour is managed by the
+driver using the following heuristic:
+
+- Each time a QUEUE FULL status is returned, tagged queue depth is reduced 
+  to the actual number of disconnected commands. 
+
+- Every 200 successfully completed SCSI commands, if allowed by the
+  current limit, the maximum number of queueable commands is incremented.
+
+Since QUEUE FULL status reception and handling is resource wasting, the 
+driver notifies by default this problem to user by indicating the actual 
+number of commands used and their status, as well as its decision on the 
+device queue depth change.
+The heuristic used by the driver in handling QUEUE FULL ensures that the 
+impact on performances is not too bad. You can get rid of the messages by 
+setting verbose level to zero, as follow:
+
+1st method: boot your system using 'sym53c8xx=verb:0' option.
+2nd method: apply "setverbose 0" control command to the proc fs entry 
+            corresponding to your controller after boot-up.
+
+6. Parity checking
+
+The driver supports SCSI parity checking and PCI bus master parity
+checking.  These features must be enabled in order to ensure safe
+data transfers.  Some flawed devices or mother boards may have problems
+with parity.  The options to defeat parity checking have been removed
+from the driver.
+
+7. Profiling information
+
+This driver does not provide profiling information as did its predecessors.
+This feature was not this useful and added complexity to the code. 
+As the driver code got more complex, I have decided to remove everything 
+that didn't seem actually useful.
+
+8. Control commands
+
+Control commands can be sent to the driver with write operations to
+the proc SCSI file system. The generic command syntax is the
+following:
+
+      echo "<verb> <parameters>" >/proc/scsi/sym53c8xx/0
+      (assumes controller number is 0)
+
+Using "all" for "<target>" parameter with the commands below will
+apply to all targets of the SCSI chain (except the controller).
+
+Available commands:
+
+8.1 Set minimum synchronous period factor
+
+    setsync <target> <period factor>
+
+    target:    target number
+    period:    minimum synchronous period.
+               Maximum speed = 1000/(4*period factor) except for special
+               cases below.
+
+    Specify a period of 0, to force asynchronous transfer mode.
+
+       9 means 12.5 nano-seconds synchronous period
+      10 means 25 nano-seconds synchronous period
+      11 means 30 nano-seconds synchronous period
+      12 means 50 nano-seconds synchronous period
+
+8.2 Set wide size
+
+    setwide <target> <size>
+
+    target:    target number
+    size:      0=8 bits, 1=16bits
+
+8.3 Set maximum number of concurrent tagged commands
+ 
+    settags <target> <tags>
+
+    target:    target number
+    tags:      number of concurrent tagged commands
+               must not be greater than configured (default: 16)
+
+8.4 Set debug mode
+
+    setdebug <list of debug flags>
+
+    Available debug flags:
+        alloc:   print info about memory allocations (ccb, lcb)
+        queue:   print info about insertions into the command start queue
+        result:  print sense data on CHECK CONDITION status
+        scatter: print info about the scatter process
+        scripts: print info about the script binding process
+	tiny:    print minimal debugging information
+	timing:  print timing information of the NCR chip
+	nego:    print information about SCSI negotiations
+	phase:   print information on script interruptions
+
+    Use "setdebug" with no argument to reset debug flags.
+
+
+8.5 Set flag (no_disc)
+ 
+    setflag <target> <flag>
+
+    target:    target number
+
+    For the moment, only one flag is available:
+
+        no_disc:   not allow target to disconnect.
+
+    Do not specify any flag in order to reset the flag. For example:
+    - setflag 4
+      will reset no_disc flag for target 4, so will allow it disconnections.
+    - setflag all
+      will allow disconnection for all devices on the SCSI bus.
+
+
+8.6 Set verbose level
+
+    setverbose #level
+
+    The driver default verbose level is 1. This command allows to change 
+    th driver verbose level after boot-up.
+
+8.7 Reset all logical units of a target
+
+    resetdev <target>
+
+    target:    target number
+    The driver will try to send a BUS DEVICE RESET message to the target.
+
+8.8 Abort all tasks of all logical units of a target
+
+    cleardev <target>
+
+    target:    target number
+    The driver will try to send a ABORT message to all the logical units 
+    of the target.
+
+
+9. Configuration parameters
+
+Under kernel configuration tools (make menuconfig, for example), it is 
+possible to change some default driver configuration parameters.
+If the firmware of all your devices is perfect enough, all the
+features supported by the driver can be enabled at start-up. However,
+if only one has a flaw for some SCSI feature, you can disable the
+support by the driver of this feature at linux start-up and enable
+this feature after boot-up only for devices that support it safely.
+
+Configuration parameters:
+
+Use normal IO                         (default answer: n)
+    Answer "y" if you suspect your mother board to not allow memory mapped I/O.
+    May slow down performance a little.
+
+Default tagged command queue depth    (default answer: 16)
+    Entering 0 defaults to tagged commands not being used.
+    This parameter can be specified from the boot command line.
+
+Maximum number of queued commands     (default answer: 32)
+    This option allows you to specify the maximum number of tagged commands 
+    that can be queued to a device. The maximum supported value is 255.
+
+Synchronous transfers frequency       (default answer: 80)
+    This option allows you to specify the frequency in MHz the driver 
+    will use at boot time for synchronous data transfer negotiations.
+    0 means "asynchronous data transfers".
+
+10. Boot setup commands
+
+10.1 Syntax
+
+Setup commands can be passed to the driver either at boot time or as
+parameters to modprobe, as described in Documentation/admin-guide/kernel-parameters.rst
+
+Example of boot setup command under lilo prompt:
+
+lilo: linux root=/dev/sda2 sym53c8xx.cmd_per_lun=4 sym53c8xx.sync=10 sym53c8xx.debug=0x200
+
+- enable tagged commands, up to 4 tagged commands queued.
+- set synchronous negotiation speed to 10 Mega-transfers / second.
+- set DEBUG_NEGO flag.
+
+The following command will install the driver module with the same
+options as above.
+
+    modprobe sym53c8xx cmd_per_lun=4 sync=10 debug=0x200
+
+10.2 Available arguments
+
+10.2.1  Default number of tagged commands
+        cmd_per_lun=0 (or cmd_per_lun=1) tagged command queuing disabled
+        cmd_per_lun=#tags (#tags > 1) tagged command queuing enabled
+  #tags will be truncated to the max queued commands configuration parameter.
+
+10.2.2 Burst max
+        burst=0    burst disabled
+        burst=255  get burst length from initial IO register settings.
+        burst=#x   burst enabled (1<<#x burst transfers max)
+  #x is an integer value which is log base 2 of the burst transfers max.
+  By default the driver uses the maximum value supported by the chip.
+
+10.2.3 LED support
+        led=1      enable  LED support
+        led=0      disable LED support
+  Do not enable LED support if your scsi board does not use SDMS BIOS.
+  (See 'Configuration parameters')
+
+10.2.4 Differential mode
+        diff=0	never set up diff mode
+        diff=1	set up diff mode if BIOS set it
+        diff=2	always set up diff mode
+        diff=3	set diff mode if GPIO3 is not set
+
+10.2.5 IRQ mode
+        irqm=0     always open drain
+        irqm=1     same as initial settings (assumed BIOS settings)
+        irqm=2     always totem pole
+
+10.2.6 Check SCSI BUS 
+        buschk=<option bits>
+
+    Available option bits:
+        0x0:   No check.
+        0x1:   Check and do not attach the controller on error.  
+        0x2:   Check and just warn on error.
+
+10.2.7 Suggest a default SCSI id for hosts
+        hostid=255	no id suggested.
+        hostid=#x   (0 < x < 7) x suggested for hosts SCSI id.
+
+    If a host SCSI id is available from the NVRAM, the driver will ignore 
+    any value suggested as boot option. Otherwise, if a suggested value 
+    different from 255 has been supplied, it will use it. Otherwise, it will 
+    try to deduce the value previously set in the hardware and use value 
+    7 if the hardware value is zero.
+
+10.2.8  Verbosity level
+        verb=0     minimal
+        verb=1     normal
+        verb=2     too much
+
+10.2.9 Debug mode
+        debug=0	 clear debug flags
+        debug=#x   set debug flags
+  #x is an integer value combining the following power-of-2 values:
+  DEBUG_ALLOC       0x1
+  DEBUG_PHASE       0x2
+  DEBUG_POLL        0x4
+  DEBUG_QUEUE       0x8
+  DEBUG_RESULT     0x10
+  DEBUG_SCATTER    0x20
+  DEBUG_SCRIPT     0x40
+  DEBUG_TINY       0x80
+  DEBUG_TIMING    0x100
+  DEBUG_NEGO      0x200
+  DEBUG_TAGS      0x400
+  DEBUG_FREEZE    0x800
+  DEBUG_RESTART  0x1000
+
+  You can play safely with DEBUG_NEGO. However, some of these flags may 
+  generate bunches of syslog messages. 
+
+10.2.10 Settle delay
+        settle=n	delay for n seconds
+
+  After a bus reset, the driver will delay for n seconds before talking
+  to any device on the bus.  The default is 3 seconds and safe mode will
+  default it to 10.
+
+10.2.11 Serial NVRAM
+	NB: option not currently implemented.
+        nvram=n     do not look for serial NVRAM
+        nvram=y     test controllers for onboard serial NVRAM
+        (alternate binary form)
+        nvram=<bits options>
+        0x01   look for NVRAM  (equivalent to nvram=y)
+        0x02   ignore NVRAM "Synchronous negotiation" parameters for all devices
+        0x04   ignore NVRAM "Wide negotiation"  parameter for all devices
+        0x08   ignore NVRAM "Scan at boot time" parameter for all devices
+        0x80   also attach controllers es
+    ameter fand evicll dor a9yY	e is za<yS<yS<O31econtBUG_<Rs es
+   alntrollers es
+iclliMS BIOS.
+  za<y  alntollers es     debu controlle/R/ queuing enabled
+  #tags umber of tps
+   alntOS.
+  za<Eting   debu2 8k:BR/R/ queui)upt thap totem pole
+
+llemIch conts SCSaddress theg   ded safu2 8k:10.2.1onverting from old optstyoption bi  APiously se,e sym.8 river docept moas bments
+
+1 the burm)
+ 
+	53c8xx=tags:4/t2,c=10:10,ug fl:00
+
+10.A flault:   the ncr ewdule witameters fohis 
+drnot sok n valilable fr.
+M of rectoptions to e decain inthe cone asut soms wil been bine
+_per_lun=#t resetfl you decierent fropurpose The defsS.
+  zve.
+
+ would
+specified froa  D	probe sym53c8xx cmd_per_lun=4 sync=10 debug=0x200
+
+10.onboae connel cont time tooa  D	53c8xx.cmd_per_lun=4 sym53c8xx.sync=10 sym53c8xx.debug=0x200
+
+- e4 SCSI BUS checking boot option
+1110.Whto s option allis
+    ameat sn-o.
+
+lues:
+he driver wilckingCSI id.e tos 
+ical atus
+
+he0
+
+nimcreconds syner booiours umr   tthe conI id.ET mese.
+
+Ma driver wilt resouadCSI id.e tos  safckingCS logi tos ouad FAL   ept forET me.nce QUEI devices do sharesetles pe con chemost of 
+  no-seconds syner booI dev
+ET mes been supmr   tth,y devned to theTR    
+  /R/ queuiaSI BUS cheblems
+w.
+Urmattue bise,e symlowing commandallI BUS cheblems
+wre thee
+
+ldrs d co:
+- O for1st rimaatif iall th
+- setMisces tdst rimaatifs setBaueuiay codt rimaatifs sOae coner boadlin,ther at bauece f, thebrokdraices do,t currormatio
+regices do,tler  
+  ca at bSI std.ed to thesymwr difwhto sriver wilouadCSi
+
+9.15CSI problem troubleshooting
+   
+1 Problem tracking
+   
+M of I problem trre thedue ameat snrrormatio
+reI bus.
+
+ as
+ bad.esty
+ices. Mem a hurmattue biseu to e decI problem trrou can confk and
+following:
+
+ ng 
+ts- EacI bus.
+
+ ce f   -dt rimaats as aoot DEBend the SCSI chain (e -dux starog messages. 
+dor of these my haveelpu ca)f your c not loofinhe conece wasproblems arou can configure this river usidevices thafand evicll dh DEBimal debtures su. Eacy allochronous data transfers".
+targed commands queabled
+   -sconnections.
+ t allow me   
+Now, your scsI bus.
+
+ optik,ur system usi beerythiange ce work fith the Fis
+  modfiguration par somformances is l del be greimizaalIf yousafet delfablohis to  can cond a Ar sysblem trocribedpn toolsply ropl Ntaximng inft of
+ as
+ ews-udiep Someemethoeatcopy order to re
+spec thiIll resetce bet Oth Obusly se,eus rgafand evver code gotisssible tors esMyrrent limin ildress th:rard Roudier <groudier@free.fr>
+21 l I ng:
+
+ connections.
+ t
+drnmt ifo
+reyou sus at eral souices on th
+r scsI bus.
+
+  somof usica atsoblem trreh the.estyvices.
+   Shronous data transfers".
+creases pertnouughpsomofster uices on likerd disk wi SomGooCSI comd disks seeh thearger vche >= n advantage of th
+ged commands queued..
+
+If 2 Understanding hardware error reports
+12..Whto s river defaus d n intunected foror repditions, t wil havdisces per
+sage to the burm)wing poweer pr110.53c0:1: ERROR (0:48) (1-21-65) (f/95/0) @dorpt int7c0:19000000)..53c0:ript int_pe10009000000.53c0:rregdump:ta  Meg  a95 47 0f   l07 75   l81 21g  a  l09 k:10.e flawieldhafans fasassage to  haveelpu cader lindinge conta at the bur
+blem tr, follows:
+
+19953c0:1: ERROR (0:48) (1-21-65) (f/95/0) @dorpt int7c0:19000000).......A.........B.C....D.E..F....G.H..I.......J.....K...L.......
+
+Field A :rget number
+  tps
+I comID the drivce on  controller on  notking
+  eh theate moment, opt thap or repocrens.
+
+Field B :rDSTATeuinister set(DMA STATUS    Bwil00
+  :rMDPEster parD traity cheEr re             mD traity cheor repdrs d coboae con bus ch.   Bwil002  :rBF ursts Ft it             m bus maslt it ditions, pdrs d co   Bwil00  l: IID  Ir ogIO rruction thaDrs d co               verthe chip.
+
+fwhto itfaus d n intIr ogIO rruction thamation            10.oome speditions, pt mostaken integuction thair ogIO.   Bwil008  :rDFE Dma Fifo Empt            10.P safeus rec 32-t didn not use/R/ queuiarror.
+
+10m a h recomted by DSTATeue combiined seatconingon of theMDPEs(00
+ ),    BF (002 )his to  conta at  breae likedesiue ameat bus cheblems
+w.
+
+Field C :rSISTeuinister set(I comIrrupt thaSus re    Bwil0008 :rSGEs
+I comGROSS ERROR           10.IR/ queuhat the 
+imp.
+
+fdrs d coba eral eror repditions,             10.oom SCSI cha chet thep  debuhe SCSI procestocolom oldfunon th
+      15........perly su.   Bwil0004 :rUDC derected forconnection
+	Ta          10.IR/ queuhat the 
+imvce on etles pdm SCSI cha chew to  cont.
+
+fa          10. not thiected :
+
+ ng o modhed In convce on  breaee decso 
+acc          10./R/ queui)SCSI chatial stohat thearror.
+
+pditions,   thiomted e  LEDDDDDDDDDDDDDng the folI procestocolo beeocrenrf tps
+Bwil0002 :rRSTeSI cha cheet alc          10.erally, fSI toolets of not looet the flaI cha chll tthuughy devc          10.ice on the bus checanoet theitrolledeve" p.   Bwil00  l: PARarity ch                parity cheor repdrs d co.   Oaeaslt ityaI cha chll nyror.
+
+pditions,  ng difSGEs(0008)hiUDC (0004)  saf   PARa(0001)  breae drs d cobthe chip.
+
+1 Iour scsI bustem usie spe" p    tencouns fors fasor.
+
+pditions, ohiecial
+   fSI tooGROSS ERRORhis to bSI std   Bcheblems
+w log ikedes conta at the buseror res.
+
+F
+
+pwieldhaD,E,F,G  safHou can brek foro the com53c8xx.de_defs.hle sysat didbiined see speimal debmendedtn theregister sets op.
+Field D :rSOCL    boaOutpsomtrol comLh in           s optister setetfl yohe sym.us
+
+ the SCSI chairol comi tos t thap tooooooop.
+
+fwato nvrver d 
+
+pdimp and n adst.
+Field E :rSBCL    boasts trol comL tosap toooooooAal 
+nuue comconcurl comi tos oom SCSI cha ch.
+Field F :rSBDL    boasts D traL tosap toooooooAal 
+nuue comcona trai tos oom SCSI cha ch.
+Field G :rSXF   0I chaTsfers".ap toooooooCiined se sym.ing verthe SCSIhronous datPod factrepoutpsom saf            content limIhronous datoff the(off theeans "asochronous da).
+Field H :rSCNTL3   boatrol comRster set3ap toooooooCiined se sym.ing verthe ng infues:
+ r bit  DEBochronous dat saf           chronous data transfers".
+. 
+Field I :rSCNTL4   boatrol comRster set4           O forns " in and bit1010 
+  ra-3 ontrollers. Thnder kending harFieldhaJ, K, Ld do numpptisquireo modhevot mfacwn o
+  to theSI standard doohip capaoreo funon thnalnd its rnal to ver defa trauctions su. Yare usi looetquired deduce got under lindinge comnless you arewato nvreelpu
+n inned nd evver code goIf 27erial NVRAM sup(ed comRichard Waltham)
+ :taati dae@farslemt.deg d.co.uk)f 27eeatures
+   
+Ene f, trial NVRAM
+  pport if ble LEs drs d  of the NCRial NVRAM
+  preatBUGd whibios and Teke SCSIios andpatibilisyscontrodaptifs,d Tekram forrds mahe max
+ial NVRAM
+  prsed by thebios and Tekram fornvre optsup difameters for allt thacontrodaptifd its prember of vver csThe folbios NVRAM layo atte opsta on CHE boot comer to thecontrodaptifsafana
+tem usih DEBi than 64  has ontrodaptifThis valormation on not sok n vald by
+its d'o fundatatio  fSorpotibilisysh the samhotplugt buse wilIf ram forrds maDng theIios andps, thiDC390W/F/U,ich is e NVRAM or  thedrs d co inge c
+drnotu to thetrib thuishtterw supIios andpatibilisys Tekram for ontr
+odaptifshis comnotu to thetrie the
+supIios andpatibilisys"iere"m.ing ve
+orportly for of Lnkram forrds ma the harCONFICRIPSI_8XX ch_SYMS se_COMPATe
+figuration parameter.
+
+lis
+    ene f, tr  DEBbios and Tekram forrds ma be 
+used buttos ohwith the comIios andps maDng the the drieatures de,preatBU ve
+"iere"m.ort if. (" (1<pin"pport for theIios andpatibilisysps maDcanoetn in
+bled (1<w to ng theram forcs maheIidn not ush used.
+ and bitram for ont
+odaptifst drop not useta at blem trreher at.)he folameters to mdriver in hboveto cha numm the NVRAM, tpend on the Opeta tramation d bus follow:
+
+1st                                 ram formats
+
+       ios andmats
+
+nerally,d handontrameters
+
+Un    B comer to                         N                   Yn    H of I proID                       Y                   Yn    I parity checking and              Y                   Yn    Vose levt comsages. 
+d             N                   YnI devices do ameters
+
+Un    chronous transfers feed to         Y                   Yn    e neg16 / Nar rw                   Y                   Yn    ged comCand queQing enabled
+       Y                   Yn    Donnections.
+ tbled
+               Y                   Yn    n at boot time" p                  N                   Yn order to reaed to to 4hystem. Tot tior exam conice on figured (deh th SCSe pro"s at boot time" parion alhe driver wilce assearror.
+
+pthe Opetfi traTESTeUNITADME Ymmand queetce bedr allt drivce. Th
+f 27eymbios NVRAM layout
+   
+typl unia trabooAM or  ess theg 0
+
+n(8xx.10aoAM or)
+-----------------------------------------------------------
+
+
+n00 is 01
+8e 0b
+
+
+
+n3
+n00n00n00n00n07n00n00n00n00n00n00n00n07n04 Meg04 00n00n
+
+
+4 00n0f 00n00n10n00n50n00n00n01n00n00n62 
+
+4 00n03 00n00n10n00n58n00n00n01n00n00n63 
+
+4 00n01 00n00n10n00n48n00n00n01n00n00n61 
+00n00n00n00n00n00n00n00n00n00n00n00n00n00n
+
+
+f 00n08n08n64 00n0an00 
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00   
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00   
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+0n00n00n00n00n00n00n00n
+
+featu
+
+
+n00 
+
+n00 -----------------------------------------------------------
+AM layout
+  edrsablo
+
+AM layAess theg 000-g 0fft use SDo              eg 0
+
+-g 26fitial sei buta tr              eg 27
+-g 7fft use SDo 
+erally yout
+   
+       ed poto   ---y detde,      debu tra    -35y detde (ckingCuw logdetdmmar this driv tr       0x0nsfi on  ---y detdet                  ---
+     0x0noio   0x0368 detdetta tra thayout
+   
+       etroller on sup dif  --20 detdet        t commaguration par --5y detde (4x14 detde       0x0ice on sup dif a    - KB detde (16x8 detde       0x0und but(sp an?)a    - 52 detde (19x8 detde       0x0000000000000000000000---
+     0x0noio   0x00000000000035y detde
+ -----------------------------------------------------------
+d poto
+
+
+0n00n   -??art quemarkto
+is 01n   -detdmcouns (lsb/msbIOS.
+udde d poto/nsfi on)
+8e 0bn   -ckingCuw (lsb/msbIOS.
+udde d poto/nsfi on)
+-----------------------------------------------------------
+troller on sup di
+
+
+
+n3
+n00n00n00n00n07n00n00n00n00n00n00n00n07n04 Meg04 00n00      0x000000000000|00000|00000000000|00000|      0x000000000000|00000|00000000000|000000--ndontrID      0x000000000000|00000|00000000000|      0x000000000000|00000|000000000000--ove sveto Mediapported       0x000000000000|00000|000000000000 x08  0 =t sne      0x000000000000|00000|000000000000 x08  1 =tB coveto Dce
+is      0x000000000000|00000|000000000000 x08  2 =t I ch theMedia      0x000000000000|00000|      0x000000000000|000000--g alls opt2      0x000000000000|000000x08  0000001= s at er to hi->:
+
+      0x000000000000|000000x00000fault ans8  0 - s at -end>hi       0x0000000000000--g alls opt1      0x00000000000000008  0000001 s amable
+thi     0x00000000000000008  00000Megity cheole
+thi     0x00000000000000008  00000
+
+nvose levt comssge
+ etn in, tr etde unwn old-e Opy not attaared  change somin my
+tent limsup dif all ny the chiprollers. Thndault anssup difcomndial  uni bit10x.10ao 53c8xx 75RAM
+   (ove sveto Mediaped combios NVRS setsion of 4.09)
+-----------------------------------------------------------
+t commaguration pa
+
+t comer to svertheer to the 
+imvce onhafand  o me
+thi
+
+4 00n0f 00n00n10n00n50n00n00n01n00n00n62 --n1controllers f
+
+4 00n03 00n00n10n00n58n00n00n01n00n00n63     mettrollers f
+
+4 00n01 00n00n10n00n48n00n00n01n00n00n61    3rettrollers f
+
+0n00n00n00n00n00n00n00n00n00n00n00n00n00nnnn4tontrollers ei     0x|0x|0x|0x|0x000|000000x0|0x000|00|i     0x|0x|0x|0x|0x000|000000x0|0x000--   - busiort of adei     0x|0x|0x|0x|0x000|000000x0-- 8  1 tial/s at boot time" pi     0x|0x|0x|0x|0x000--  devices. /funon thmber of (0xdddddfff)i     0x|0x|0x-------??a devdor webID (lsb/msb       0x0---- devices. bID (lsb/msb  
+??a at the bdriv tr hbov gu the somes to sonable ca
+ etn in, tr etde unwn old-e Opy not attaared  change somin my
+tent limsup dindault anssup difcomndial  uni bit10x.10ao 53c8xx 75RAM
+   -----------------------------------------------------------
+ice on sup dif(to 1 DW6mvce onha-preatBUGontroller nu)  
+f 00n08n08n64 00n0an00 - is 0 
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00   
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00  
+f 00n08n08n64 00n0an00 - is 15
+0|0x000|00|x0|0x000|00|i |0x000|00|x0|0x0000----e" p
+  e(lsb/msb   |   0x|0x|0x---chronriod of (0x??aMB/snsfer/sec-ster u40) (bably jusg 28   |   0x|0x|0x----------------(0x3
+n2B/snsfer/sec-ster u20   |   0x|0x|0x----------------(0x64 Megsnsfer/sec-ster u   |   0x|0x|0x----------------(0xc8--5gsnsfer/sec   |   0x|0x|0x----------------(0x00nnochronous da)  |   0x|0x ---??a quec <taoff the(0008 in AM or int10x.10a)   |   0x|0x                       (g 0
+ in AM or int10x.75)  |   0x --ice on  maswidton(0008 nar rw)  |   0x                    (g 0
+ by diide si    --g alls op     8  0000001 -sconnectionabled
+  #ta008  00000Meg- s at boot time" pi    8  00000
+
+n- s at -unp     8  0000
+
+ n- ue deps wilbled
+  # etn in, tr etde unwn old-e Opy not attaared  change somin my
+tent limsup dind??a at the bdriv tr hbov gu the somes to sonable ca 
+( somiontruleen a que maswidto)ndault anssup dif bit10x.10aoAM
+   ault anssup dif bit10x.75RAM
+    -dmaswidton 0x -10
+  DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB-ec <taoff the? -10
+  DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB-ec <taiod of x -10
+30 -----------------------------------------------------------
+??arp thedre on spaon (bit PCIdmas??)
+
+
+0n00n00n00n00n00n00n00n (19x8detde  . . 
+0n00n00n00n00n00n00n00ndault anssup difcomndial  uni bit10x.10ao 53c8xx 75RAM
+   -----------------------------------------------------------
+nsfi on
+
+featu x -1?Bend markto ?
+
+
+n00 
+
+n00 dault anssup difcomndial  uni bit10x.10ao 53c8xx 75RAM
+   -----------------------------------------------------------
+
+f 27e3 ram forAM layout
+   
+am=y)n64xby (102it, b)
+
+Der d tings)
+ 
+
+Der d ID 0-15p(ed r 8  yyyy0 =tice on supup, yyyy =tID       0x0000000(ed r 8  yyyy1 =t8  000) 
+    x x x x  x x x x  x x x x  x x x xDEBBBBBBBBBBBBBB|B|B|BBBBBB|B|BB|B|B|B|      0x00000000|B|B|BBBBBB|B|BB|B|B|B-------ity checking   8 -1off      0x00000000|B|B|BBBBBB|B|BB|B|B|B----------------------1 -s	Ta          10.00|B|B|BBBBBB|B|BB|B|B|a          10.00|B|B|BBBBBB|B|BB|B|B--------ec <tanend      8 -1off      0x00000000|B|B|BBBBBB|B|BB|B|BBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta          10.00|B|B|BBBBBB|B|BB|B|a          10.00|B|B|BBBBBB|B|BB|B-------   -connectiona    8 -1off      0x00000000|B|B|BBBBBB|B|BB|BBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta          10.00|B|B|BBBBBB|B|BB|a          10.00|B|B|BBBBBB|B|BB------------art que_pe1a    8 -1off      0x00000000|B|B|BBBBBB|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta          10.00|B|B|BBBBBB|B|a          10.00|B|B|BBBBBB|B------------
+81rged commm    (d8 -1off      0x00000000|B|B|BBBBBB|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta          10.00|B|B|BBBBBB|Ba          10.00|B|B|BBBBBB------------
+8181rw negotiBBBBBB-8 -1off      0x00000000|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta          10.00|B|B|DEBBBBBBBBBBBBBBB---------------------------ec <tae bunBBBB-8 -110.egsnsfer/sect                                 BBBBBBBBBBBBBBBBBBBBBBBBBB1 -s 8. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB2 -s 6.6DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB3r --5.7DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB4r --5. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB5r --4. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB6r --3. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB7  --2. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB7  --2. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB8  -20. DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB9 -116.7DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBa -113.9DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBb -111.9D
+Glblyl tings)
+ 
+
+H of gs may00(ed r 8 1 0000,)
+    
+    x x x x  x x x x  x x x x  x x x xDEBBB|0|B|B|BB|0|B|B|BBBBBBBBBBB|B|B|B|     |0|B|B|BB|0|B|B|BBBBBBBBBBB------------adontrIDBBB-8  0 - g 0f     |0|B|B|BB|0|B|B|     |0|B|B|BB|0|B|BB-----------------------pport for the B-8 -1off     |0|B|B|BB|0|B|BBBBBBBBBBBBBBBBBBBBBBBBBB> river d
+d    1 -s	Ta    |0|B|B|BB|0|B|Ba    |0|B|B|BB|0|BB-------------------------pport forver d
+d8 -1off     |0|B|B|BB|0|BBBBBBBBBBBBBBBBBBBBBBBBBBBB> 1G etde d    1 -s	Ta    |0|B|B|BB|0|a    |0|B|B|BB|0B---------------------------e reset, t intB-8 -1off     |0|B|B|BB|00000000000000000000000000000000er-of intB-  1 -s	Ta    |0|B|B|BB|a    |0|B|B|BBB-----------------------------eave venotiBBBBB8 -1off     |0|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta    |0|B|B|a    |0|B|BB--------------------------------eimmek tim BBBBB8 -1off     |0|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta    |0|B|a    |0|BB---------------------------------- s at -unp BBBBB8 -1off     |0|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -s	Ta    |0|DEBBBB-------------------------------------- rve sveto BBBBB8 -1trie thDEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBaVRS set <taBBB1 -st timdce
+is      0x00000000000000000000000000000000000000000000000000002 -s
+   
+H of gs may10(ed r 8 1 0001,)
+3) 
+    x x x x  x x x x  x x x x  x x x xDEBBBBBBBBBBBBBB|B|B|BBBBBBBBBBBBB|B|B|B      0x00000000|B|B|BBBBBBBBBBBBBB--------- t timdces ppppp0  ---econd      0x00000000|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1 -sBB5      0x00000000|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB2 -s   DEBBBBBBBBBBBBBB|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB3  --20DEBBBBBBBBBBBBBB|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB4r --30DEBBBBBBBBBBBBBB|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB5r --60DEBBBBBBBBBBBBBB|B|B|BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB6  - K0DEBBBBBBBBBBBBBB|B|B|DEBBBBBBBBBBBBBBB---------------------------e quegedmmm    (0  --2      0x00000000000000000000000000000000000000000000000000001 -sB4      0x00000000000000000000000000000000000000000000000000002 -s 8DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB3r -16DEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB4r -
+wilH of gs may20(ed r 8 1 0010,)
+4) 
+    x x x x  x x x x  x x x x  x x x xDEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB|      0x0000000000000000000000000000000-----eF2/F6able  LEDB8 -1off ???      0x00000000000000000000000000000000000000000000000000001 -sintB??? 
+ckingCuw (ed r 8 111111) 
+ckingCuw =t8 1234r -(Cuw ed r 8-63) 
+---------------------------------------------------------------------------- dault ansam=y)nv tr:
+
+8  037t8  000 8  037t8  000 8  037t8  000 8  037t8  000
+8  037t8  000 8  037t8  000 8  037t8  000 8  037t8  000
+8  037t8  000 8  037t8  000 8  037t8  000 8  037t8  000
+8  037t8  000 8  037t8  000 8  037t8  000 8  037t8  000 
+
+8  f07t8  400 8  001n0  000 8  000 8  000 8  000 8  000
+0  000 8  000 8  000 8  000 8  000 8  000 8  000 8  000
+0  000 8  000 8  000 8  000 8  000 8  000 8  000 8  000
+0  000 8  000 8  000 8  000 8  000 8  000 8  000 8 fbbc
+
+
+===============================================================================
+End theLx staSYM-2iver does entation/adle 

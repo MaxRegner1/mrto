@@ -1,0 +1,107 @@
+* Core Clock bindings for Marvell MVEBU SoCs
+
+Marvell MVEBU SoCs usually allow to determine core clock frequencies by
+reading the Sample-At-Reset (SAR) register. The core clock consumer should
+specify the desired clock by having the clock ID in its "clocks" phandle cell.
+
+The following is a list of provided IDs and clock names on Armada 370/XP:
+ 0 = tclk    (Internal Bus clock)
+ 1 = cpuclk  (CPU clock)
+ 2 = nbclk   (L2 Cache clock)
+ 3 = hclk    (DRAM control clock)
+ 4 = dramclk (DDR clock)
+
+The following is a list of provided IDs and clock names on Armada 375:
+ 0 = tclk    (Internal Bus clock)
+ 1 = cpuclk  (CPU clock)
+ 2 = l2clk   (L2 Cache clock)
+ 3 = ddrclk  (DDR clock)
+
+The following is a list of provided IDs and clock names on Armada 380/385:
+ 0 = tclk    (Internal Bus clock)
+ 1 = cpuclk  (CPU clock)
+ 2 = l2clk   (L2 Cache clock)
+ 3 = ddrclk  (DDR clock)
+
+The following is a list of provided IDs and clock names on Armada 39x:
+ 0 = tclk    (Internal Bus clock)
+ 1 = cpuclk  (CPU clock)
+ 2 = nbclk   (Coherent Fabric clock)
+ 3 = hclk    (SDRAM Controller Internal Clock)
+ 4 = dclk    (SDRAM IntermAM Contrd ockclk  (CPU clock)
+ 2 = nbclk   (L2 Cache clock)
+ 3 = hc (CPU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPUiDU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPU clock)
+ 2 = Dlk   (L2 Cache clocsaXO&DPU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPUiDU clock)
+ 2 = Dlk   (L2 Cache &O&DDU clock)
+ 2 = Dlk   (L2 Cache &O&DDU clock)
+ 2 = Dlk   (L2 Cache &O&DDU clock)
+ 2iDlock)
+ 2 = Dlk   (L2 Cache &O&DDU clock)
+ 2iDlock)
+ 2 = Dlk   (L2 Cache &O&DDU cloCclock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPUiDU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPU clock)
+ 2 = Dlk   (L2 Cache clocsaXO&DPU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CalP,(CPUiDU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPU clock)
+ 2 = Dlk   (L2 CachmiDe clock)
+ 3 = hc (CalP,(CPUiDU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPU clo2DDU clock)
+ 2iDlock)
+ 2 = Dlk   (L2 Cache &O&DDU cloCclock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPUiDU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (CPU clock)
+ 2 = Dlk   (L2 Cache clocssck)
+ 5,cock)
+ 2iDlock)
+ 2 = Dlk   (L2 Cache &O&DDU cloCclock)
+ 2 = Dlk   (L2 Cache clock)
+}2che clocsaXO&DPU clock)
+ 2 = Dlk   (L2 Cache clock)
+ 3 = hc (Cal5,0Rriv Dlfrom  = Dlk   (L2 DU clock)
+  = hc   (L2 Cach(Cal5,0Rriv Dlfrom  = Dlk   (L2 clocssck)
+ 5,cock)
+ 2iDlock)
+ 2 = Dlk   (L2 Cache &O&DDU clOrion5x   (L2 Cache clock)
+}2che clocsaXO&DPU clock)
+ 2 = Dlk   (L2 Cachlock)
+  = hc   (L2 Cach(Cal5,0Rriv Dlfrom  = Dlk   (L2 Rn Aclock)
+ pertda :
+-c  mpatib4 =:clkf p beU celocktlocssck)
+ 5,:
+	"m
+The f,aXO&DP-e c-(CPU-k   (" - F3 =L2 Cache cng i (CPU clocks
+	"m
+The f,aXO&DP-e 5-(CPU-k   (" - F3 =L2 Cache 5ng i (CPU clocks
+	"m
+The f,aXO&DP-e8c-(CPU-k   (" - F3 =L2 Cache clockng i (CPU clocks
+	"m
+The f,aXO&DP-e9c-(CPU-k   (" - F3 =L2 Cache9xng i (CPU clocks
+	"m
+The f,aXO&DP-xp-(CPU-k   (" - F3 =L2 CachXPng i (CPU clocks
+	"m
+The f,mv)
+ 2 = D-(CPU-k   (" - F3 =)
+ 2 = D famit og i (CPU clocks
+	"m
+The f,dDlk-(CPU-k   (" -  3 = Dlkog i (CPU clocks
+	"m
+The f,kCclock)-(CPU-k   (" -  3 =oCclock)
+g i (except mv88f6180)
+	"m
+The f,mv88f6180-(CPU

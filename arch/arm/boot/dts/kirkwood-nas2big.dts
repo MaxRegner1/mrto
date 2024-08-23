@@ -1,0 +1,39 @@
+/*
+ * Device Tree file for LaCie 2Big NAS
+ *
+ * Copyright (C) 2015 Seagate
+ *
+ * Author: Simon Guinot <simon.guinot@sequanux.org>
+ *
+ * This file is licensed under the terms of the GNU General Public
+ * License version 2.  This program is licensed "as is" without any
+ * warranty of any kind, whether express or implied.
+*/
+
+/dts-v1/;
+
+#include "kirkwood-netxbig.dtsi"
+
+/ {
+	model = "LaCie 2Big NAS";
+	compatible = "lacie,nas2big", "lacie,netxbig", "marvell,kirkwood-88f6282", "marvell,kirkwood";
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x10000000>;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8";
+		stdout-path = &uart0;
+	};
+
+	ocp@f1000000 {
+		rtc@10300 {
+			/* The on-chip RTC is not powered (no supercap). */
+			status = "disabled";
+		};
+		spi@10600 {
+			/*
+			 * Ae<5umemo5umemo5umemo5umemo-w6no supercap). */
+			status = "	k = "	k = "	k = "	k-

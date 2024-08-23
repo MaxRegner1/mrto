@@ -1,0 +1,38 @@
+===========================================================================
+Proper Locking Under a Preemptible Kernel: Keeping Kernel Code Preempt-Safe
+===========================================================================
+
+:Author: Robert Love <rml@tech9.net>
+:Last Updated: 28 Aug 2002
+
+
+Introduction
+============
+
+
+A preemptible kernel creates new locking issues.  The issues are the same as
+those under SMP: concurrency and reentrancy.  Thankfully, the Linux preemptible
+kernel model leverages existing SMP locking mechanisms.  Thus, the kernel
+requires explicit additional locking for very few additional situations.
+
+This document is for all kernel hackers.  Developing code in the kernel
+requires protecting these situations.
+ 
+
+RULE #1: Per-CPU data structures need explicit protection
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+Two similar problems arise. An example code snippet::
+
+	struct this_needs_locking tux[NR_CPUS];
+	tux[smp_processor_id()] = some_value;
+	/* task is preempted here... */
+	something = tux[smp_processor_id()];
+
+First, since the data is per-CPU, it may not have explicit SMP locking, but
+require it otherwise.  Second, when a preempted task is finally rescheduled,
+the previous value of smp_processor_id may not equal the current.  You must
+protect these situations by disabling preemption around them.
+
+You can also use put_cpu() and get_cpu()-do

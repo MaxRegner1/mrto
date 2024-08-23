@@ -1,0 +1,1158 @@
+/*
+ * Aic79xx register and scratch ram definitions.
+ *
+ * Copyright (c) 1994-2001, 2004 Justin T. Gibbs.
+ * Copyright (c) 2000-2002 Adaptec Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions, and the following disclaimer,
+ *    without modification.
+ * 2. Redistributions in binary form must reproduce at minimum a disclaimer
+ *    substantially similar to the "NO WARRANTY" disclaimer below
+ *    ("Disclaimer") and any redistribution must be conditioned upon
+ *    including a substantially similar Disclaimer requirement for further
+ *    binary redistribution.
+ * 3. Neither the names of the above-listed copyright holders nor the names
+ *    of any contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * Alternatively, this software may be distributed under the terms of the
+ * GNU General Public License ("GPL") version 2 as published by the Free
+ * Software Foundation.
+ *
+ * NO WARRANTY
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGES.
+ *
+ * $FreeBSD$
+ */
+VERSION = "$Id: //depot/aic7xxx/aic7xxx/aic79xx.reg#77 $"
+
+/*
+ * This file is processed by the aic7xxx_asm utility for use in assembling
+ * firmware for the aic79xx family of SCSI host adapters as well as to generate
+ * a C header file for use in the kernel portion of the Aic79xx driver.
+ */
+
+/* Register window Modes */
+#define M_DFF0		0
+#define M_DFF1		1
+#define M_CCHAN		2
+#define M_SCSI		3
+#define M_CFG		4
+#define M_DST_SHIFT	4
+
+#define MK_MODE(src, dst) ((src) | ((dst) << M_DST_SHIFT))
+#define SET_MODE(src, dst)						\
+	SET_SRC_MODE	src;						\
+	SET_DST_MODE	dst;						\
+	if ((ahd->bugs & AHD_SET_MODE_BUG) != 0) {			\
+		mvi	MK_MODE(src, dst) call set_mode_work_around;	\
+	} else {							\
+		mvi	MODE_PTR, MK_MODE(src, dst);			\
+	}
+
+#define RESTORE_MODE(mode)						\
+	if ((ahd->bugs & AHD_SET_MODE_BUG) != 0) {			\
+		mov	mode call set_mode_work_around;			\
+	} else {							\
+		mov	MODE_PTR, mode;					\
+	}
+
+#define SET_SEQINTCODE(code)						\
+	if ((ahd->bugs & AHD_INTCOLLISION_BUG) != 0) {			\
+		mvi	code call set_seqint_work_around;		\
+	} else {							\
+		mvi	SEQINTCODE, code;				\
+	}
+
+/*
+ * Registers marked "dont_generate_debug_code" are not (yet) referenced
+ * from the driver code, and this keyword inhibit generation
+ * of debug code for them.
+ *
+ * REG_PRETTY_PRINT config will complain if dont_generate_debug_code
+ * is added to the register which is referenced in the driver.
+ * Unreferenced register with no dont_generate_debug_code will result
+ * in dead code. No warning is issued.
+ */
+
+/*
+ * Mode Pointer
+ * Controls which of the 5, 512byte, address spaces should be used
+ * as the source and destination of any register accesses in our
+ * register window.
+ */
+register MODE_PTR {
+	address			0x000
+	access_mode	RW
+	field	DST_MODE	0x70
+	field	SRC_MODE	0x07
+	mode_pointer
+	dont_generate_debug_code
+}
+
+const SRC_MODE_SHIFT	0
+const DST_MODE_SHIFT	4
+
+/*
+ * Host Interrupt Status
+ */
+register INTSTAT {
+	address			0x001
+	access_mode	RW
+	field	HWERRINT	0x80
+	field	BRKADRINT	0x40
+	field	SWTMINT		0x20
+	field	PCIINT		0x10
+	field	SCSIINT		0x08
+	field	SEQINT		0x04
+	field	CMDCMPLT	0x02
+	field	SPLTINT		0x01
+	mask	INT_PEND 0xFF
+}
+
+/*
+ * Sequencer Interrupt Code
+ */
+register SEQINTCODE {
+	address			0x002
+	access_mode	RW
+	field {
+		NO_SEQINT,			/* No seqint pending. */
+		BAD_PHASE,			/* unknown scsi bus phase */
+		SEND_REJECT,			/* sending a message reject */
+		PROTO_VIOLATION, 		/* Protocol Violation */
+		NO_MATCH,			/* no cmd match for reconnect */
+		IGN_WIDE_RES,			/* Complex IGN Wide Res Msg */
+		PDATA_REINIT,			/*
+						 * Returned to data phase
+						 * that requires data
+						 * transfer pointers to be
+						 * recalculated from the
+						 * transfer residual.
+						 */
+		HOST_MSG_LOOP,			/*
+						 * The bus is ready for the
+						 * host to perform another
+						 * message transaction.  This
+						 * mechanism is used for things
+						 * like sync/wide negotiation
+						 * that require a kernel based
+						 * message state engine.
+						 */
+		BAD_STATUS,			/* Bad status from target */
+		DATA_OVERRUN,			/*
+						 * Target attempted to write
+						 * beyond the bounds of its
+						 * command.
+						 */
+		MKMSG_FAILED,			/*
+						 * Target completed command
+						 * without honoring our ATN
+						 * request to issue a message. 
+						 */
+		MISSED_BUSFREE,			/*
+						 * The sequencer never saw
+						 * the bus go free after
+						 * either a command complete
+						 * or disconnect message.
+						 */
+		DUMP_CARD_STATE,
+		ILLEGAL_PHASE,
+		INVALID_SEQINT,
+		CFG4ISTAT_INTR,
+		STATUS_OVERRUN,
+		CFG4OVERRUN,
+		ENTERING_NONPACK,
+		TASKMGMT_FUNC_COMPLETE,		/*
+						 * Task management function
+						 * request completed with
+						 * an expected busfree.
+						 */
+		TASKMGMT_CMD_CMPLT_OKAY,	/*
+						 * A command with a non-zero
+						 * task management function
+						 * has completed via the normal
+						 * command completion method
+						 * for commands with a zero
+						 * task management function.
+						 * This happens when an attempt
+						 * to abort a command loses
+						 * the race for the command to
+						 * complete normally.
+						 */
+		TRACEPOINT0,
+		TRACEPOINT1,
+		TRACEPOINT2,
+		TRACEPOINT3,
+		SAW_HWERR,
+		BAD_SCB_STATUS
+	}
+	dont_generate_debug_code
+}
+
+/*
+ * Clear Host Interrupt
+ */
+register CLRINT {
+	address			0x003
+	access_mode	WO
+	count		19
+	field	CLRHWERRINT	0x80 /* Rev B or greater */
+	field	CLRBRKADRINT	0x40
+	field	CLRSWTMINT	0x20
+	field	CLRPCIINT	0x10
+	field	CLRSCSIINT	0x08
+	field	CLRSEQINT	0x04
+	field	CLRCMDINT	0x02
+	field	CLRSPLTINT	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * Error Register
+ */
+register ERROR {
+	address			0x004
+	access_mode	RO
+	field	CIOPARERR	0x80
+	field	CIOACCESFAIL	0x40 /* Rev B or greater */
+	field	MPARERR		0x20
+	field	DPARERR		0x10
+	field	SQPARERR	0x08
+	field	ILLOPCODE	0x04
+	field	DSCTMOUT	0x02
+	dont_generate_debug_code
+}
+
+/*
+ * Clear Error
+ */
+register CLRERR {
+	address			0x004
+	access_mode 	WO
+	field	CLRCIOPARERR	0x80
+	field	CLRCIOACCESFAIL	0x40 /* Rev B or greater */
+	field	CLRMPARERR	0x20
+	field	CLRDPARERR	0x10
+	field	CLRSQPARERR	0x08
+	field	CLRILLOPCODE	0x04
+	field	CLRDSCTMOUT	0x02
+}
+
+/*
+ * Host Control Register
+ * Overall host control of the device.
+ */
+register HCNTRL {
+	address			0x005
+	access_mode	RW
+	count		12
+	field	SEQ_RESET	0x80 /* Rev B or greater */
+	field	POWRDN		0x40
+	field	SWINT		0x10
+	field	SWTIMER_START_B	0x08 /* Rev B or greater */
+	field	PAUSE		0x04
+	field	INTEN		0x02
+	field	CHIPRST		0x01
+	field	CHIPRSTACK	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * Host New SCB Queue Offset
+ */
+register HNSCB_QOFF {
+	address			0x006
+	access_mode	RW
+	size		2
+	count		2
+	dont_generate_debug_code
+}
+
+/*
+ * Host Empty SCB Queue Offset
+ */
+register HESCB_QOFF {
+	address			0x008
+	access_mode	RW
+	count		2
+	dont_generate_debug_code
+}
+
+/*
+ * Host Mailbox
+ */
+register HS_MAILBOX {
+	address			0x00B
+	access_mode	RW
+	mask	HOST_TQINPOS	0x80	/* Boundary at either 0 or 128 */
+	mask	ENINT_COALESCE	0x40	/* Perform interrupt coalescing */
+}
+
+/*
+ * Sequencer Interrupt Status
+ */
+register SEQINTSTAT {
+	address			0x00C
+	count		1
+	access_mode	RO
+	field	SEQ_SWTMRTO	0x10
+	field	SEQ_SEQINT	0x08
+	field	SEQ_SCSIINT	0x04
+	field	SEQ_PCIINT	0x02
+	field	SEQ_SPLTINT	0x01
+}
+
+/*
+ * Clear SEQ Interrupt
+ */
+register CLRSEQINTSTAT {
+	address			0x00C
+	access_mode	WO
+	field	CLRSEQ_SWTMRTO	0x10
+	field	CLRSEQ_SEQINT	0x08
+	field	CLRSEQ_SCSIINT	0x04
+	field	CLRSEQ_PCIINT	0x02
+	field	CLRSEQ_SPLTINT	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * Software Timer
+ */
+register SWTIMER {
+	address			0x00E
+	access_mode	RW
+	size		2
+	dont_generate_debug_code
+}
+
+/*
+ * SEQ New SCB Queue Offset
+ */
+register SNSCB_QOFF {
+	address			0x010
+	access_mode	RW
+	size		2
+	modes		M_CCHAN
+	dont_generate_debug_code
+}
+
+/*
+ * SEQ Empty SCB Queue Offset
+ */
+register SESCB_QOFF {
+	address			0x012
+	count		2
+	access_mode	RW
+	modes		M_CCHAN
+	dont_generate_debug_code
+}
+
+/*
+ * SEQ Done SCB Queue Offset
+ */
+register SDSCB_QOFF {
+	address			0x014
+	access_mode	RW
+	modes		M_CCHAN
+	size		2
+	dont_generate_debug_code
+}
+
+/*
+ * Queue Offset Control & Status
+ */
+register QOFF_CTLSTA {
+	address			0x016
+	access_mode	RW
+	modes		M_CCHAN
+	field	EMPTY_SCB_AVAIL	0x80
+	field	NEW_SCB_AVAIL	0x40
+	field	SDSCB_ROLLOVR	0x20
+	field	HS_MAILBOX_ACT	0x10
+	field	SCB_QSIZE	0x0F {
+		SCB_QSIZE_4,
+		SCB_QSIZE_8,
+		SCB_QSIZE_16,
+		SCB_QSIZE_32,
+		SCB_QSIZE_64,
+		SCB_QSIZE_128,
+		SCB_QSIZE_256,
+		SCB_QSIZE_512,
+		SCB_QSIZE_1024,
+		SCB_QSIZE_2048,
+		SCB_QSIZE_4096,
+		SCB_QSIZE_8192,
+		SCB_QSIZE_16384
+	}
+	dont_generate_debug_code
+}
+
+/*
+ * Interrupt Control
+ */
+register INTCTL {
+	address			0x018
+	access_mode	RW
+	field	SWTMINTMASK	0x80
+	field	SWTMINTEN	0x40
+	field	SWTIMER_START	0x20
+	field	AUTOCLRCMDINT	0x10
+	field	PCIINTEN	0x08
+	field	SCSIINTEN	0x04
+	field	SEQINTEN	0x02
+	field	SPLTINTEN	0x01
+}
+
+/*
+ * Data FIFO Control
+ */
+register DFCNTRL {
+	address			0x019
+	access_mode	RW
+	modes		M_DFF0, M_DFF1
+	count		11
+	field	PRELOADEN	0x80
+	field	SCSIENWRDIS	0x40	/* Rev B only. */
+	field	SCSIEN		0x20
+	field	SCSIENACK	0x20
+	field	HDMAEN		0x08
+	field	HDMAENACK	0x08
+	field	DIRECTION	0x04
+	field	DIRECTIONACK	0x04
+	field	FIFOFLUSH	0x02
+	field	FIFOFLUSHACK	0x02
+	field	DIRECTIONEN	0x01
+}
+
+/*
+ * Device Space Command 0
+ */
+register DSCOMMAND0 {
+	address			0x019
+	count		1
+	access_mode	RW
+	modes		M_CFG
+	field	CACHETHEN	0x80	/* Cache Threshold enable */
+	field	DPARCKEN	0x40	/* Data Parity Check Enable */
+	field	MPARCKEN	0x20	/* Memory Parity Check Enable */
+	field	EXTREQLCK	0x10	/* External Request Lock */
+	field	DISABLE_TWATE	0x02	/* Rev B or greater */
+	field	CIOPARCKEN	0x01	/* Internal bus parity error enable */
+	dont_generate_debug_code
+}
+
+/*
+ * Data FIFO Status
+ */
+register DFSTATUS {
+	address			0x01A
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	PRELOAD_AVAIL		0x80
+	field	PKT_PRELOAD_AVAIL	0x40
+	field	MREQPEND		0x10
+	field	HDONE			0x08
+	field	DFTHRESH		0x04
+	field	FIFOFULL		0x02
+	field	FIFOEMP			0x01
+}
+
+/*
+ * S/G Cache Pointer
+ */
+register SG_CACHE_PRE {
+	address			0x01B
+	access_mode	WO
+	modes		M_DFF0, M_DFF1
+	field	SG_ADDR_MASK	0xf8
+	field	ODD_SEG		0x04
+	field	LAST_SEG	0x02
+	dont_generate_debug_code
+}
+
+register SG_CACHE_SHADOW {
+	address			0x01B
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	SG_ADDR_MASK	0xf8
+	field	ODD_SEG		0x04
+	field	LAST_SEG	0x02
+	field	LAST_SEG_DONE	0x01
+}
+
+/*
+ * Arbiter Control
+ */
+register ARBCTL {
+	address			0x01B
+	access_mode	RW
+	modes		M_CFG
+	field	RESET_HARB	0x80
+	field	RETRY_SWEN	0x08
+	field	USE_TIME	0x07
+}
+
+/*
+ * Data Channel Host Address
+ */
+register HADDR {
+	address			0x070
+	access_mode	RW
+	size		8
+	modes		M_DFF0, M_DFF1
+	dont_generate_debug_code
+}
+
+/*
+ * Host Overlay DMA Address
+ */
+register HODMAADR {
+	address			0x070
+	access_mode	RW
+	size		8
+	modes		M_SCSI
+}
+
+/*
+ * PCI PLL Delay.
+ */
+register PLLDELAY {
+	address			0x070
+	access_mode	RW
+	size		1
+	modes		M_CFG
+	field	SPLIT_DROP_REQ	0x80
+}
+
+/*
+ * Data Channel Host Count
+ */
+register HCNT {
+	address			0x078
+	access_mode	RW
+	size		3
+	modes		M_DFF0, M_DFF1
+	dont_generate_debug_code
+}
+
+/*
+ * Host Overlay DMA Count
+ */
+register HODMACNT {
+	address			0x078
+	access_mode	RW
+	size		2
+	modes		M_SCSI
+}
+
+/*
+ * Host Overlay DMA Enable
+ */
+register HODMAEN {
+	address			0x07A
+	access_mode	RW
+	modes		M_SCSI
+}
+
+/*
+ * Scatter/Gather Host Address
+ */
+register SGHADDR {
+	address			0x07C
+	access_mode	RW
+	size		8
+	modes		M_DFF0, M_DFF1
+	dont_generate_debug_code
+}
+
+/*
+ * SCB Host Address
+ */
+register SCBHADDR {
+	address			0x07C
+	access_mode	RW
+	size		8
+	modes		M_CCHAN
+	dont_generate_debug_code
+}
+
+/*
+ * Scatter/Gather Host Count
+ */
+register SGHCNT {
+	address			0x084
+	access_mode	RW
+	modes		M_DFF0, M_DFF1
+	dont_generate_debug_code
+}
+
+/*
+ * SCB Host Count
+ */
+register SCBHCNT {
+	address			0x084
+	access_mode	RW
+	modes		M_CCHAN
+	dont_generate_debug_code
+}
+
+/*
+ * Data FIFO Threshold
+ */
+register DFF_THRSH {
+	address			0x088
+	access_mode	RW
+	modes		M_CFG
+	count		1
+	field	WR_DFTHRSH	0x70 {
+		WR_DFTHRSH_MIN,
+		WR_DFTHRSH_25,
+		WR_DFTHRSH_50,
+		WR_DFTHRSH_63,
+		WR_DFTHRSH_75,
+		WR_DFTHRSH_85,
+		WR_DFTHRSH_90,
+		WR_DFTHRSH_MAX
+	}
+	field	RD_DFTHRSH	0x07 {
+		RD_DFTHRSH_MIN,
+		RD_DFTHRSH_25,
+		RD_DFTHRSH_50,
+		RD_DFTHRSH_63,
+		RD_DFTHRSH_75,
+		RD_DFTHRSH_85,
+		RD_DFTHRSH_90,
+		RD_DFTHRSH_MAX
+	}
+	dont_generate_debug_code
+}
+
+/*
+ * ROM Address
+ */
+register ROMADDR {
+	address			0x08A
+	access_mode	RW
+	size		3
+}
+
+/*
+ * ROM Control
+ */
+register ROMCNTRL {
+	address			0x08D
+	access_mode	RW
+	field	ROMOP		0xE0
+	field	ROMSPD		0x18
+	field	REPEAT		0x02
+	field	RDY		0x01
+}
+
+/*
+ * ROM Data
+ */
+register ROMDATA {
+	address			0x08E
+	access_mode	RW
+}
+
+/*
+ * Data Channel Receive Message 0
+ */
+register DCHRXMSG0 {
+	address			0x090
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field		CDNUM	0xF8
+	field		CFNUM	0x07
+}
+
+/*
+ * CMC Receive Message 0
+ */
+register CMCRXMSG0 {
+	address			0x090
+	access_mode	RO
+	modes		M_CCHAN
+	field		CDNUM	0xF8
+	field		CFNUM	0x07
+}
+
+/*
+ * Overlay Receive Message 0
+ */
+register OVLYRXMSG0 {
+	address			0x090
+	access_mode	RO
+	modes		M_SCSI
+	field		CDNUM	0xF8
+	field		CFNUM	0x07
+}
+
+/*
+ * Relaxed Order Enable
+ */
+register ROENABLE {
+	address			0x090
+	access_mode	RW
+	modes		M_CFG
+	field	MSIROEN		0x20
+	field	OVLYROEN	0x10
+	field	CMCROEN		0x08
+	field	SGROEN		0x04
+	field	DCH1ROEN	0x02
+	field	DCH0ROEN	0x01
+}
+
+/*
+ * Data Channel Receive Message 1
+ */
+register DCHRXMSG1 {
+	address			0x091
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	CBNUM		0xFF
+}
+
+/*
+ * CMC Receive Message 1
+ */
+register CMCRXMSG1 {
+	address			0x091
+	access_mode	RO
+	modes		M_CCHAN
+	field	CBNUM		0xFF
+}
+
+/*
+ * Overlay Receive Message 1
+ */
+register OVLYRXMSG1 {
+	address			0x091
+	access_mode	RO
+	modes		M_SCSI
+	field	CBNUM		0xFF
+}
+
+/*
+ * No Snoop Enable
+ */
+register NSENABLE {
+	address			0x091
+	access_mode	RW
+	modes		M_CFG
+	field	MSINSEN		0x20
+	field	OVLYNSEN	0x10
+	field	CMCNSEN		0x08
+	field	SGNSEN		0x04
+	field	DCH1NSEN	0x02
+	field	DCH0NSEN	0x01
+}
+
+/*
+ * Data Channel Receive Message 2
+ */
+register DCHRXMSG2 {
+	address			0x092
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	MINDEX		0xFF
+}
+
+/*
+ * CMC Receive Message 2
+ */
+register CMCRXMSG2 {
+	address			0x092
+	access_mode	RO
+	modes		M_CCHAN
+	field	MINDEX		0xFF
+}
+
+/*
+ * Overlay Receive Message 2
+ */
+register OVLYRXMSG2 {
+	address			0x092
+	access_mode	RO
+	modes		M_SCSI
+	field	MINDEX		0xFF
+}
+
+/*
+ * Outstanding Split Transactions
+ */
+register OST {
+	address			0x092
+	access_mode	RW
+	modes		M_CFG
+}
+
+/*
+ * Data Channel Receive Message 3
+ */
+register DCHRXMSG3 {
+	address			0x093
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	MCLASS		0x0F
+}
+
+/*
+ * CMC Receive Message 3
+ */
+register CMCRXMSG3 {
+	address			0x093
+	access_mode	RO
+	modes		M_CCHAN
+	field	MCLASS		0x0F
+}
+
+/*
+ * Overlay Receive Message 3
+ */
+register OVLYRXMSG3 {
+	address			0x093
+	access_mode	RO
+	modes		M_SCSI
+	field	MCLASS		0x0F
+}
+
+/*
+ * PCI-X Control
+ */
+register PCIXCTL {
+	address			0x093
+	access_mode	RW
+	modes		M_CFG
+	count		1
+	field	SERRPULSE	0x80
+	field	UNEXPSCIEN	0x20
+	field	SPLTSMADIS	0x10
+	field	SPLTSTADIS	0x08
+	field	SRSPDPEEN	0x04
+	field	TSCSERREN	0x02
+	field	CMPABCDIS	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * CMC Sequencer Byte Count
+ */
+register CMCSEQBCNT {
+	address			0x094
+	access_mode	RO
+	modes		M_CCHAN
+}
+
+/*
+ * Overlay Sequencer Byte Count
+ */
+register OVLYSEQBCNT {
+	address			0x094
+	access_mode	RO
+	modes		M_SCSI
+}
+
+/*
+ * Data Channel Sequencer Byte Count
+ */
+register DCHSEQBCNT {
+	address			0x094
+	access_mode	RO
+	size		2
+	modes		M_DFF0, M_DFF1
+}
+
+/*
+ * Data Channel Split Status 0
+ */
+register DCHSPLTSTAT0 {
+	address			0x096
+	access_mode	RW
+	modes		M_DFF0, M_DFF1
+	count		2
+	field	STAETERM	0x80
+	field	SCBCERR		0x40
+	field	SCADERR		0x20
+	field	SCDATBUCKET	0x10
+	field	CNTNOTCMPLT	0x08
+	field	RXOVRUN		0x04
+	field	RXSCEMSG	0x02
+	field	RXSPLTRSP	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * CMC Split Status 0
+ */
+register CMCSPLTSTAT0 {
+	address			0x096
+	access_mode	RW
+	modes		M_CCHAN
+	field	STAETERM	0x80
+	field	SCBCERR		0x40
+	field	SCADERR		0x20
+	field	SCDATBUCKET	0x10
+	field	CNTNOTCMPLT	0x08
+	field	RXOVRUN		0x04
+	field	RXSCEMSG	0x02
+	field	RXSPLTRSP	0x01
+}
+
+/*
+ * Overlay Split Status 0
+ */
+register OVLYSPLTSTAT0 {
+	address			0x096
+	access_mode	RW
+	modes		M_SCSI
+	field	STAETERM	0x80
+	field	SCBCERR		0x40
+	field	SCADERR		0x20
+	field	SCDATBUCKET	0x10
+	field	CNTNOTCMPLT	0x08
+	field	RXOVRUN		0x04
+	field	RXSCEMSG	0x02
+	field	RXSPLTRSP	0x01
+}
+
+/*
+ * Data Channel Split Status 1
+ */
+register DCHSPLTSTAT1 {
+	address			0x097
+	access_mode	RW
+	modes		M_DFF0, M_DFF1
+	count		2
+	field	RXDATABUCKET	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * CMC Split Status 1
+ */
+register CMCSPLTSTAT1 {
+	address			0x097
+	access_mode	RW
+	modes		M_CCHAN
+	field	RXDATABUCKET	0x01
+}
+
+/*
+ * Overlay Split Status 1
+ */
+register OVLYSPLTSTAT1 {
+	address			0x097
+	access_mode	RW
+	modes		M_SCSI
+	field	RXDATABUCKET	0x01
+}
+
+/*
+ * S/G Receive Message 0
+ */
+register SGRXMSG0 {
+	address			0x098
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field		CDNUM	0xF8
+	field		CFNUM	0x07
+}
+
+/*
+ * S/G Receive Message 1
+ */
+register SGRXMSG1 {
+	address			0x099
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	CBNUM		0xFF
+}
+
+/*
+ * S/G Receive Message 2
+ */
+register SGRXMSG2 {
+	address			0x09A
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	MINDEX		0xFF
+}
+
+/*
+ * S/G Receive Message 3
+ */
+register SGRXMSG3 {
+	address			0x09B
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+	field	MCLASS		0x0F
+}
+
+/*
+ * Slave Split Out Address 0
+ */
+register SLVSPLTOUTADR0 {
+	address			0x098
+	access_mode	RO
+	modes		M_SCSI
+	field	LOWER_ADDR	0x7F
+}
+
+/*
+ * Slave Split Out Address 1
+ */
+register SLVSPLTOUTADR1 {
+	address			0x099
+	access_mode	RO
+	modes		M_SCSI
+	field	REQ_DNUM	0xF8
+	field	REQ_FNUM	0x07
+}
+
+/*
+ * Slave Split Out Address 2
+ */
+register SLVSPLTOUTADR2 {
+	address			0x09A
+	access_mode	RO
+	modes		M_SCSI
+	field	REQ_BNUM	0xFF
+}
+
+/*
+ * Slave Split Out Address 3
+ */
+register SLVSPLTOUTADR3 {
+	address			0x09B
+	access_mode	RO
+	modes		M_SCSI
+	field	RLXORD		020
+	field	TAG_NUM		0x1F
+}
+
+/*
+ * SG Sequencer Byte Count
+ */
+register SGSEQBCNT {
+	address			0x09C
+	access_mode	RO
+	modes		M_DFF0, M_DFF1
+}
+
+/*
+ * Slave Split Out Attribute 0
+ */
+register SLVSPLTOUTATTR0 {
+	address			0x09C
+	access_mode	RO
+	modes		M_SCSI
+	field	LOWER_BCNT	0xFF
+}
+
+/*
+ * Slave Split Out Attribute 1
+ */
+register SLVSPLTOUTATTR1 {
+	address			0x09D
+	access_mode	RO
+	modes		M_SCSI
+	field	CMPLT_DNUM	0xF8
+	field	CMPLT_FNUM	0x07
+}
+
+/*
+ * Slave Split Out Attribute 2
+ */
+register SLVSPLTOUTATTR2 {
+	address			0x09E
+	access_mode	RO
+	size		2
+	modes		M_SCSI
+	field	CMPLT_BNUM	0xFF
+}
+/*
+ * S/G Split Status 0
+ */
+register SGSPLTSTAT0 {
+	address			0x09E
+	access_mode	RW
+	modes		M_DFF0, M_DFF1
+	count		2
+	field	STAETERM	0x80
+	field	SCBCERR		0x40
+	field	SCADERR		0x20
+	field	SCDATBUCKET	0x10
+	field	CNTNOTCMPLT	0x08
+	field	RXOVRUN		0x04
+	field	RXSCEMSG	0x02
+	field	RXSPLTRSP	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * S/G Split Status 1
+ */
+register SGSPLTSTAT1 {
+	address			0x09F
+	access_mode	RW
+	modes		M_DFF0, M_DFF1
+	count		2
+	field	RXDATABUCKET	0x01
+	dont_generate_debug_code
+}
+
+/*
+ * Special Function
+ */
+register SFUNCT {
+	address			0x09f
+	access_mode	RW
+	modes		M_CFG
+	field	TEST_GROUP	0xF0
+	field	TEST_NUM	0x0F
+	dont_generate_debug_code
+}
+
+/*
+ * Data FIFO 0 PCI Status 
+ */
+register DF0PCISTAT {
+	address			0x0A0
+	access_mode	RW
+	modes		M_CFG
+	count		1
+	field	DPE		0x80
+	field	SSE		0x40
+	field	RMA		0x20
+	field	RTA		0x10
+	field	SCAAPERR	0x08
+	field	RDPERR		0x04
+	field	TWATERR		0x02
+	field	DPR		0x01
+	dont_generate_debug_code
+}
+
+/*
+ * Data FIFO 1 PCI Status 
+ */
+register DF1PCISTAT {
+	address			0x0A0)g

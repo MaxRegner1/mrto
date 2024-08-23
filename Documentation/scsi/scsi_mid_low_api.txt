@@ -1,0 +1,77 @@
+                          Linux Kernel 2.6 series
+                 SCSI mid_level - lower_level driver interface
+                 =============================================
+
+Introduction
+============
+This document outlines the interface between the Linux SCSI mid level and
+SCSI lower level drivers. Lower level drivers (LLDs) are variously called 
+host bus adapter (HBA) drivers and host drivers (HD). A "host" in this
+context is a bridge between a computer IO bus (e.g. PCI or ISA) and a
+single SCSI initiator port on a SCSI transport. An "initiator" port
+(SCSI terminology, see SAM-3 at http://www.t10.org) sends SCSI commands
+to "target" SCSI ports (e.g. disks). There can be many LLDs in a running
+system, but only one per hardware type. Most LLDs can control one or more
+SCSI HBAs. Some HBAs contain multiple hosts.
+
+In some cases the SCSI transport is an external bus that already has
+its own subsystem in Linux (e.g. USB and ieee1394). In such cases the
+SCSI subsystem LLD is a software bridge to the other driver subsystem.
+Examples are the usb-storage driver (found in the drivers/usb/storage
+directory) and the ieee1394/sbp2 driver (found in the drivers/ieee1394
+directory).
+
+For example, the aic7xxx LLD controls Adaptec SCSI parallel interface
+(SPI) controllers based on that company's 7xxx chip series. The aic7xxx
+LLD can be built into the kernel or loaded as a module. There can only be
+one aic7xxx LLD running in a Linux system but it may be controlling many 
+HBAs. These HBAs might be either on PCI daughter-boards or built into 
+the motherboard (or both). Some aic7xxx based HBAs are dual controllers
+and thus represent two hosts. Like most modern HBAs, each aic7xxx host
+has its own PCI device address. [The one-to-one correspondence between
+a SCSI host and a PCI device is common but not required (e.g. with
+ISA adapters).]
+
+The SCSI mid level isolates an LLD from other layers such as the SCSI
+upper layer drivers and the block layer.
+
+This version of the document roughly matches linux kernel version 2.6.8 .
+
+Documentation
+=============
+There is a SCSI documentation directory within the kernel source tree, 
+typically Documentation/scsi . Most documents are in plain
+(i.e. ASCII) text. This file is named scsi_mid_low_api.txt and can be 
+found in that directory. A more recent copy of this document may be found
+at http://web.archive.org/web/20070107183357rn_1/sg.torque.net/scsi/. 
+Many LLDs are documented there (e.g. aic7xxx.txt). The SCSI mid-level is
+briefly described in scsi.txt which contains a url to a document 
+describing the SCSI subsystem in the lk 2.4 series. Two upper level 
+drivers have documents in that directory: st.txt (SCSI tape driver) and 
+scsi-generic.txt (for the sg driver).
+
+Some documentation (or urls) for LLDs may be found in the C source code
+or in the same directory as the C source code. For example to find a url
+about the USB mass storage driver see the 
+/usr/src/linux/drivers/usb/storage directory.
+
+Driver structure
+================
+Traditionally an LLD for the SCSI subsystem has been at least two files in
+the drivers/scsi directory. For example, a driver called "xyz" has a header
+file "xyz.h" and a source file "xyz.c". [Actually there is no good reason
+why this couldn't all be in one file; the header file is superfluous.] Some
+drivers that have been ported to several operating systems have more than
+two files. For example the aic7xxx driver has separate files for generic 
+and OS-specific code (e.g. FreeBSD and Linux). Such drivers tend to have
+their own directory under the drivers/scsi directory.
+
+When a new LLD is being added to Linux, the following files (found in the
+drivers/scsi directory) will need some attention: Makefile and Kconfig .
+It is probably best to study how existing LLDs are organized.
+
+As the 2.5 series development kernels evolve into the 2.6 series
+production series, changes are being introduced into this interface. An
+example of this is driver initialization code where there are now 2 models
+available. The older one, similar to what was found in the lk 2.4 series,
+is based on hosts that are detected at HBA driver load time

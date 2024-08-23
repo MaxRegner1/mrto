@@ -1,0 +1,10 @@
+Kernel driver k10temp
+=====================
+
+Supported chips:
+* AMD Family 10h processors:
+  Socket F: Quad-Core/Six-Core/Embedded Opteron (but see below)
+  Socket AM2+: Quad-Core Opteron, Phenom (II) X3/X4, Athlon X2 (but see below)
+  Socket AM3: Quad-Core Opteron, Athlon/Phenom II X2/X3/X4, Sempron II
+  Socket S1G3: Athlon II, Sempron, Turion II
+* AMD Family 11
